@@ -1,34 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
-
 import 'dart:async';
 
 import 'package:flutter_clock_helper/model.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:drawing_animation/drawing_animation.dart';
 
-enum _Element {
-  background,
-  text,
-  shadow,
-}
-
-final _lightTheme = {
-  _Element.background: Color(0xFF81B3FE),
-  _Element.text: Colors.white,
-  _Element.shadow: Colors.black,
-};
-
-final _darkTheme = {
-  _Element.background: Colors.black,
-  _Element.text: Colors.white,
-  _Element.shadow: Color(0xFF174EA6),
-};
-
-/// A basic digital clock.
-///
-/// You can do better than this!
 class DigitalClock extends StatefulWidget {
   const DigitalClock(this.model);
 
@@ -41,6 +17,19 @@ class DigitalClock extends StatefulWidget {
 class _DigitalClockState extends State<DigitalClock> {
   DateTime _dateTime = DateTime.now();
   Timer _timer;
+  List<String> _assets;
+  List<bool> _run;
+  StreamController<bool> _streamController = StreamController<bool>.broadcast();
+  bool _clear = false;
+  Duration _duration = Duration(milliseconds: 600);
+
+  void setAssets() {
+    final h =
+        DateFormat(widget.model.is24HourFormat ? 'HH' : 'hh').format(_dateTime);
+    final m = DateFormat('mm').format(_dateTime);
+    _run = [false, false, false, false, false];
+    _assets = [h[0], h[1], "s", m[0], m[1]];
+  }
 
   @override
   void initState() {
@@ -64,6 +53,7 @@ class _DigitalClockState extends State<DigitalClock> {
     _timer?.cancel();
     widget.model.removeListener(_updateModel);
     widget.model.dispose();
+    _streamController.close();
     super.dispose();
   }
 
@@ -76,59 +66,157 @@ class _DigitalClockState extends State<DigitalClock> {
   void _updateTime() {
     setState(() {
       _dateTime = DateTime.now();
-      // Update once per minute. If you want to update every second, use the
-      // following code.
       _timer = Timer(
         Duration(minutes: 1) -
             Duration(seconds: _dateTime.second) -
             Duration(milliseconds: _dateTime.millisecond),
         _updateTime,
       );
-      // Update once per second, but make sure to do it at the beginning of each
-      // new second, so that the clock is accurate.
-      // _timer = Timer(
-      //   Duration(seconds: 1) - Duration(milliseconds: _dateTime.millisecond),
-      //   _updateTime,
-      // );
+      _clear = true;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).brightness == Brightness.light
-        ? _lightTheme
-        : _darkTheme;
-    final hour =
-        DateFormat(widget.model.is24HourFormat ? 'HH' : 'hh').format(_dateTime);
-    final minute = DateFormat('mm').format(_dateTime);
-    final fontSize = MediaQuery.of(context).size.width / 3.5;
-    final offset = -fontSize / 7;
-    final defaultStyle = TextStyle(
-      color: colors[_Element.text],
-      fontFamily: 'PressStart2P',
-      fontSize: fontSize,
-      shadows: [
-        Shadow(
-          blurRadius: 0,
-          color: colors[_Element.shadow],
-          offset: Offset(10, 0),
-        ),
-      ],
-    );
-
+    if (_assets == null) {
+      setAssets();
+    }
     return Container(
-      color: colors[_Element.background],
-      child: Center(
-        child: DefaultTextStyle(
-          style: defaultStyle,
-          child: Stack(
-            children: <Widget>[
-              Positioned(left: offset, top: 0, child: Text(hour)),
-              Positioned(right: offset, bottom: offset, child: Text(minute)),
-            ],
-          ),
+      color: Colors.white,
+      child: Stack(children: <Widget>[
+        Row(
+          children: <Widget>[
+            Spacer(flex: 2),
+            Expanded(
+              flex: 20,
+              child: Digit(
+                _assets[0],
+                _run[0],
+                _streamController.stream,
+                () => setState(() {
+                  _run[1] = true;
+                }),
+                _duration,
+              ),
+            ),
+            Spacer(flex: 2),
+            Expanded(
+              flex: 20,
+              child: Digit(
+                _assets[1],
+                _run[1],
+                _streamController.stream,
+                () => setState(() {
+                  _run[2] = true;
+                }),
+                _duration,
+              ),
+            ),
+            Spacer(flex: 2),
+            Expanded(
+              flex: 8,
+              child: Digit(
+                _assets[2],
+                _run[2],
+                _streamController.stream,
+                () => setState(() {
+                  _run[3] = true;
+                }),
+                _duration * 0.5,
+              ),
+            ),
+            Spacer(flex: 2),
+            Expanded(
+              flex: 20,
+              child: Digit(
+                _assets[3],
+                _run[3],
+                _streamController.stream,
+                () => setState(() {
+                  _run[4] = true;
+                }),
+                _duration,
+              ),
+            ),
+            Spacer(flex: 2),
+            Expanded(
+              flex: 20,
+              child: Digit(
+                _assets[4],
+                _run[4],
+                _streamController.stream,
+                () => setState(() {}),
+                _duration,
+              ),
+            ),
+            Spacer(flex: 2),
+          ],
         ),
-      ),
+        Digit(
+          "clear",
+          _clear,
+          _streamController.stream,
+          () => setState(() {
+            _clear = false;
+            _streamController.add(true);
+            setAssets();
+            _run[0] = true;
+          }),
+          _duration * 3,
+        )
+      ]),
+    );
+  }
+}
+
+class Digit extends StatefulWidget {
+  Digit(this.assetName, this.run, this.stream, this.onFinish, this.duration);
+  final String assetName;
+  final bool run;
+  final Stream<bool> stream;
+  final VoidCallback onFinish;
+  final Duration duration;
+
+  @override
+  DigitState createState() => DigitState();
+}
+
+class DigitState extends State<Digit> with SingleTickerProviderStateMixin {
+  AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = new AnimationController(
+      duration: widget.duration,
+      vsync: this,
+    );
+    _controller.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        widget.onFinish();
+      }
+    });
+    widget.stream.listen((reset) {
+      if (reset) {
+        _controller.reset();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.run) {
+      _controller.forward();
+    }
+    return AnimatedDrawing.svg(
+      "assets/" + widget.assetName + ".svg",
+      controller: _controller,
     );
   }
 }
